@@ -253,10 +253,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     private void onClusterViewChanged(final Collection<NodeAddress> nodes)
     {
-        if (logger.isDebugEnabled())
-        {
-            logger.debug("Cluster view changed " + nodes);
-        }
+        logger.info("Cluster view changed " + nodes + " on " + Thread.currentThread().getName());
 
         final HashMap<NodeAddress, NodeInfo> oldNodes = new HashMap<>(activeNodes);
         final HashMap<NodeAddress, NodeInfo> newNodes = new HashMap<>(nodes.size());
@@ -268,9 +265,10 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             NodeInfo nodeInfo = oldNodes.remove(a);
             if (nodeInfo == null)
             {
-                nodeInfo = new NodeInfo(a);
-                nodeInfo.nodeCapabilities = stage.getRemoteObserverReference(a, NodeCapabilities.class, "");
-                nodeInfo.active = true;
+                final NodeInfo newNodeInfo = new NodeInfo(a);
+                newNodeInfo.nodeCapabilities = stage.getRemoteObserverReference(a, NodeCapabilities.class, "");
+                newNodeInfo.active = true;
+                nodeInfo = newNodeInfo;
             }
             newNodes.put(a, nodeInfo);
 
@@ -287,6 +285,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             oldNodeInfo.active = false;
         }
         activeNodes = newNodes;
+
+        stage.serverNodesUpdated();
+
         consistentHashNodeTree = newHashes;
         updateServerNodes();
 
@@ -393,7 +394,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
         // Get the existing activation from the distributed cache (if any)
         NodeAddress nodeAddress = await(distributedDirectory.get(remoteKey)
-                .whenCompleteAsync((r, e) -> {}, stage.getExecutionPool()));
+                .whenCompleteAsync((r, e) -> { }, stage.getExecutionPool()));
         if (nodeAddress != null)
         {
             // Target node still valid?
@@ -401,10 +402,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 // Cache locally
                 localAddressCache.put(actorReference, nodeAddress);
-                return Task.fromValue(nodeAddress).whenCompleteAsync((r, e) ->
-                {
-                    // place holder, just to ensure the completion happens in another thread
-                }, stage.getExecutionPool());
+                return Task.fromValue(nodeAddress);
             }
             else
             {
@@ -426,7 +424,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
         return nodeAddressTask.thenCompose((selectedNodeAddress) -> {
             // Push our selection to the distributed cache (if possible)
-            NodeAddress otherNodeAddress = await(distributedDirectory.putIfAbsent(remoteKey, selectedNodeAddress));
+            NodeAddress otherNodeAddress = await(distributedDirectory.putIfAbsent(remoteKey, selectedNodeAddress).whenCompleteAsync((r, e) -> {
+                // place holder, just to ensure the completion happens in another thread
+            }, stage.getExecutionPool()));
 
             // Someone else beat us to placement, use that node
             if (otherNodeAddress != null)
@@ -436,10 +436,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
             localAddressCache.put(actorReference, selectedNodeAddress);
 
-            return Task.fromValue(selectedNodeAddress).whenCompleteAsync((r, e) ->
-            {
-                // place holder, just to ensure the completion happens in another thread
-            }, stage.getExecutionPool());
+            return Task.fromValue(selectedNodeAddress);
         });
     }
 
@@ -474,6 +471,12 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 final String timeoutMessage = "Timeout waiting for a server capable of handling: " + interfaceClassName;
                 logger.error(timeoutMessage);
+                if (logger.isDebugEnabled()) {
+                    for (NodeInfo info : serverNodes)
+                    {
+                        logger.debug(info.toString());
+                    }
+                }
                 return Task.fromException(new UncheckedException(timeoutMessage));
             }
 
@@ -485,8 +488,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             // and nodes that are not in any target placement group
             final List<NodeInfo> potentialNodes = currentServerNodes.stream()
                     .filter(n -> (!n.cannotHostActors && n.state == NodeState.RUNNING)
-                            && actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_yes)
-                            && (n.placementGroupPending.get() || currentTargetPlacementGroups.contains(n.placementGroup)))
+                            && actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_yes))
                     .collect(Collectors.toList());
 
             if (potentialNodes.isEmpty())
@@ -507,24 +509,6 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 for (NodeInfo potentialNode : potentialNodes)
                 {
-                    if (potentialNode.placementGroupPending.compareAndSet(true, false))
-                    {
-                        potentialNode.nodeCapabilities.getPlacementGroup().handle((result, throwable) ->
-                        {
-                            // call failed, retry on next loop
-                            if (throwable != null)
-                            {
-                                potentialNode.placementGroupPending.set(true);
-                            }
-                            else
-                            {
-                                potentialNode.placementGroup = result;
-                            }
-
-                            return null;
-                        });
-                    }
-
                     // loop over the potential nodes, add the interface to a concurrent hashset, if add returns true there is no activation pending
                     if (potentialNode.canActivatePending.add(interfaceClassName))
                     {
@@ -562,9 +546,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                 }
 
                 final List<NodeInfo> suitableNodes = potentialNodes.stream()
-                        .filter(n -> actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_no)
-                                && n.placementGroup != null
-                                && targetPlacementGroups.contains(n.placementGroup))
+                        .filter(n -> actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_no))
                         .collect(Collectors.toList());
 
                 if (suitableNodes.isEmpty())
@@ -679,6 +661,22 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         {
             onInvocation(ctx, (Invocation) msg);
         }
+        else if (msg instanceof HostingInit)
+        {
+            HostingInit hostingInit = (HostingInit) msg;
+            logger.info("Received " + hostingInit);
+            Map<NodeAddress, NodeInfo> nodes = activeNodes;
+            for (Map.Entry<NodeAddress, NodeInfo> entry : nodes.entrySet())
+            {
+                if (entry.getKey().equals(hostingInit.getNodeAddress()))
+                {
+                    entry.getValue().canActivate.putAll(hostingInit.getSupportedActorInterfaces());
+                }
+            }
+            synchronized (serverNodesUpdateMutex) {
+                serverNodesUpdateMutex.notifyAll();
+            }
+        }
         else
         {
             ctx.fireRead(msg);
@@ -709,9 +707,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             return Task.done();
         }
 
-        if (logger.isDebugEnabled())
+        if (logger.isTraceEnabled())
         {
-            logger.debug("Choosing a new node for the invocation");
+            logger.trace("Choosing a new node for the invocation");
         }
 
         // over here the actor address is not the localAddress.
@@ -777,6 +775,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     @Override
     public Task write(final HandlerContext ctx, final Object msg) throws Exception
     {
+
         if (msg instanceof Invocation)
         {
             // await checks isDone()
@@ -792,16 +791,30 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                 return writeInvocation(ctx, invocation);
             }
         }
-        return ctx.write(msg);
-    }
+        else if (msg instanceof NodeJoinedEvent)
+        {
+            final Map<String, Integer> supportedActivations = new HashMap<>();
+            for (String actorInterface : stage.findSupportedActorInterfaces())
+            {
+                supportedActivations.put(actorInterface, actorSupported_yes);
+            }
 
-    public void pulse() {
-        if (getFlushPlacementGroupCache()) {
-            serverNodes.forEach((node) ->{
-                node.placementGroupPending.set(true);
-                node.placementGroup = null;
-            });
+            Map<NodeAddress, NodeInfo> nodes = activeNodes;
+            for (NodeAddress nodeAddress : nodes.keySet())
+            {
+                logger.info("Sending hosting init to " + nodeAddress);
+                ctx.write(new Message()
+                        .withFromNode(stage.getLocalAddress())
+                        .withToNode(nodeAddress)
+                        .withMessageId(0)
+                        .withInterfaceId(0)
+                        .withMethodId(0)
+                        .withMessageType(MessageDefinitions.HOSTING_INIT)
+                        .withPayload(supportedActivations));
+            }
+            return Task.done();
         }
+        return ctx.write(msg);
     }
 
     protected Task<?> writeInvocation(final HandlerContext ctx, Invocation invocation)

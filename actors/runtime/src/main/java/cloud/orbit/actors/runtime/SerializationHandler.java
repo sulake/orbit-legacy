@@ -64,8 +64,20 @@ public class SerializationHandler extends HandlerAdapter
         {
             return ctx.write(Pair.of(message.getToNode(), messageSerializer.serializeMessage(runtime, message)));
         }
-        catch (Exception ex2)
+        catch (Throwable ex2)
         {
+            if (logger.isDebugEnabled())
+            {
+                if (message.getPayload() != null) {
+                    logger.debug("Error sending response " + message.getPayload().getClass(), ex2);
+                } else {
+                    logger.debug("Error sending response", ex2);
+                }
+            }
+            if (ex2 instanceof Error)
+            {
+                throw (Error) ex2;
+            }
             final int messageType = message.getMessageType();
             if (messageType == MessageDefinitions.REQUEST_MESSAGE
                     || messageType == MessageDefinitions.ONE_WAY_MESSAGE)
@@ -73,10 +85,6 @@ public class SerializationHandler extends HandlerAdapter
                 logger.error("Error serializing message", ex2);
                 //return Task.fromException(ex2);
                 throw new UncheckedException("Error serializing message", ex2);
-            }
-            if (logger.isDebugEnabled())
-            {
-                logger.debug("Error sending response", ex2);
             }
             try
             {

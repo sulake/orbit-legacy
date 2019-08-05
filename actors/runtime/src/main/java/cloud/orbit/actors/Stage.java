@@ -81,6 +81,7 @@ import cloud.orbit.actors.runtime.LocalObjectsCleaner;
 import cloud.orbit.actors.runtime.MessageLoopback;
 import cloud.orbit.actors.runtime.Messaging;
 import cloud.orbit.actors.runtime.NodeCapabilities;
+import cloud.orbit.actors.runtime.NodeJoinedEvent;
 import cloud.orbit.actors.runtime.ObserverEntry;
 import cloud.orbit.actors.runtime.RandomSelectorExtension;
 import cloud.orbit.actors.runtime.Registration;
@@ -122,6 +123,7 @@ import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -238,6 +240,18 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     private final Task<Void> startPromise = new Task<>();
     private Thread shutdownHook = null;
     private final Object shutdownLock = new Object();
+
+    private final Executor pipelineExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+        thread.setName("OrbitPipelineThread");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    public void serverNodesUpdated()
+    {
+        CompletableFuture.runAsync(() -> pipeline.write(new NodeJoinedEvent()), pipelineExecutor);
+    }
 
     public enum StageMode
     {
@@ -1149,8 +1163,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         }
         await(clusterPeer.pulse());
 
-        hosting.pulse();
-
         return cleanup();
     }
 
@@ -1599,6 +1611,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         }
         final Class<?> concreteClass = finder.findActorImplementation(aInterface);
         return concreteClass != null;
+    }
+
+    public Set<String> findSupportedActorInterfaces()
+    {
+        return finder.getAllActorInterfaces();
     }
 
     public Pipeline getPipeline()

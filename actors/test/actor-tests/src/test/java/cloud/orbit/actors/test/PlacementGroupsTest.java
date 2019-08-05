@@ -29,6 +29,7 @@
 package cloud.orbit.actors.test;
 
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import cloud.orbit.actors.Actor;
@@ -48,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 
+@Ignore
 public class PlacementGroupsTest extends ActorBaseTest
 {
     static class RecordingNodeSelectorExtension extends RandomSelectorExtension

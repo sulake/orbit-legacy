@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
 public class ClusterHandler extends HandlerAdapter
 {
     private static Logger logger = LoggerFactory.getLogger(ClusterHandler.class);
-    private ClusterPeer clusterPeer;
+    private final ClusterPeer clusterPeer;
     private String clusterName;
     private String nodeName;
 

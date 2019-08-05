@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2019 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -28,15 +28,37 @@
 
 package cloud.orbit.actors.runtime;
 
-public class MessageDefinitions
+import cloud.orbit.actors.cluster.NodeAddress;
+
+import java.util.Map;
+
+public class HostingInit
 {
-    public static final byte ONE_WAY_MESSAGE = 0;
-    public static final byte REQUEST_MESSAGE = 1;
-    public static final byte RESPONSE_OK = 2;
-    public static final byte RESPONSE_ERROR = 3;
-    public static final byte RESPONSE_PROTOCOL_ERROR = 4;
-    public static final byte HOSTING_INIT = 5;
+    private final NodeAddress nodeAddress;
+    private final Map<String, Integer> supportedActorInterfaces;
 
-    // COMMON HEADERS
+    public HostingInit(final NodeAddress nodeAddress, final Map<String, Integer> supportedActorInterfaces)
+    {
+        this.nodeAddress = nodeAddress;
+        this.supportedActorInterfaces = supportedActorInterfaces;
+    }
 
+    public NodeAddress getNodeAddress()
+    {
+        return nodeAddress;
+    }
+
+    public Map<String, Integer> getSupportedActorInterfaces()
+    {
+        return supportedActorInterfaces;
+    }
+
+    @Override
+    public String toString()
+    {
+        return "HostingInit{" +
+                "nodeAddress=" + nodeAddress +
+                ", supportedActorInterfaces=" + supportedActorInterfaces.keySet() +
+                '}';
+    }
 }

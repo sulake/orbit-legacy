@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2019 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -28,15 +28,6 @@
 
 package cloud.orbit.actors.runtime;
 
-public class MessageDefinitions
+public class NodeJoinedEvent
 {
-    public static final byte ONE_WAY_MESSAGE = 0;
-    public static final byte REQUEST_MESSAGE = 1;
-    public static final byte RESPONSE_OK = 2;
-    public static final byte RESPONSE_ERROR = 3;
-    public static final byte RESPONSE_PROTOCOL_ERROR = 4;
-    public static final byte HOSTING_INIT = 5;
-
-    // COMMON HEADERS
-
 }

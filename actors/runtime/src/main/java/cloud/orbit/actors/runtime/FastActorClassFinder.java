@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * @author Johno Crawford (johno@sulake.com)
@@ -181,6 +182,12 @@ public class FastActorClassFinder implements ActorClassFinder
     public <T extends Actor> Class<? extends T> findActorImplementation(Class<T> actorInterface)
     {
         return (Class<? extends T>) concreteImplementations.get(actorInterface);
+    }
+
+    @Override
+    public Set<String> getAllActorInterfaces()
+    {
+        return concreteImplementations.keySet().stream().map(Class::getName).collect(Collectors.toSet());
     }
 
     @SuppressWarnings("unchecked")

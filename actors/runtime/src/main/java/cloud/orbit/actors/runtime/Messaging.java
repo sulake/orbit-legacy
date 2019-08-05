@@ -195,12 +195,12 @@ public class Messaging extends HandlerAdapter implements Startable
                     invocation.setFromNode(message.getFromNode());
                     invocation.setMessageId(messageId);
 
+                    final Task<Object> completion = new Task<>();
                     if (!invocation.isOneWay())
                     {
-                        Task<Object> completion = new Task<>();
                         completion.whenComplete((r, e) -> sendResponseAndLogError(ctx, fromNode, messageId,classId, methodId, r, e));
-                        invocation.setCompletion(completion);
                     }
+                    invocation.setCompletion(completion);
                     ctx.fireRead(invocation);
                     return;
 
@@ -272,6 +272,11 @@ public class Messaging extends HandlerAdapter implements Startable
                     }
                     break;
                 }
+                case MessageDefinitions.HOSTING_INIT:
+                    HostingInit hostingInit = new HostingInit(message.getFromNode(),
+                            (Map<String, Integer>) message.getPayload());
+                    ctx.fireRead(hostingInit);
+                    break;
                 default:
                     logger.error("Illegal protocol, invalid message type: {}", messageType);
                     return;
