@@ -47,6 +47,8 @@ public class Invocation
     private NodeAddress fromNode;
     private int hops;
     private int messageId;
+    private long creationTime = System.currentTimeMillis();
+    private long completionTime;
 
     public Invocation()
     {
@@ -86,6 +88,21 @@ public class Invocation
     public Object[] getParams()
     {
         return params;
+    }
+
+    public void setCompletionTime(final long completionTime)
+    {
+        this.completionTime = completionTime;
+    }
+
+    public long getCreationTime()
+    {
+        return creationTime;
+    }
+
+    public long getCompletionTime()
+    {
+        return completionTime;
     }
 
     public Task getCompletion()

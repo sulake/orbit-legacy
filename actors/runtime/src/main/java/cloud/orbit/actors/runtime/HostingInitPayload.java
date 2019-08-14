@@ -28,22 +28,24 @@
 
 package cloud.orbit.actors.runtime;
 
-import cloud.orbit.actors.cluster.NodeAddress;
-
+import java.io.Serializable;
 import java.util.Map;
 
-public class HostingInit
+public class HostingInitPayload implements Serializable
 {
-    private final String nodeName;
-    private final NodeAddress nodeAddress;
-    private final Map<String, Integer> supportedActorInterfaces;
+    private static final long serialVersionUID = 1L;
 
-    public HostingInit(final String nodeName, final NodeAddress nodeAddress,
-                       final Map<String, Integer> supportedActorInterfaces)
+    private String nodeName;
+    private Map<String, Integer> supportedActivations;
+
+    public HostingInitPayload()
+    {
+    }
+
+    public HostingInitPayload(final String nodeName, final Map<String, Integer> supportedActivations)
     {
         this.nodeName = nodeName;
-        this.nodeAddress = nodeAddress;
-        this.supportedActorInterfaces = supportedActorInterfaces;
+        this.supportedActivations = supportedActivations;
     }
 
     public String getNodeName()
@@ -51,23 +53,8 @@ public class HostingInit
         return nodeName;
     }
 
-    public NodeAddress getNodeAddress()
+    public Map<String, Integer> getSupportedActivations()
     {
-        return nodeAddress;
-    }
-
-    public Map<String, Integer> getSupportedActorInterfaces()
-    {
-        return supportedActorInterfaces;
-    }
-
-    @Override
-    public String toString()
-    {
-        return "HostingInit{" +
-                "nodeName=" + nodeName +
-                ", nodeAddress=" + nodeAddress +
-                ", supportedActorInterfaces=" + supportedActorInterfaces.keySet() +
-                '}';
+        return supportedActivations;
     }
 }

@@ -1434,6 +1434,12 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     }
 
     @Override
+    public String getNodeName(final NodeAddress nodeAddress)
+    {
+        return hosting.getNodeName(nodeAddress);
+    }
+
+    @Override
     public <T extends ActorObserver> T registerObserver(Class<T> iClass, String id, final T observer)
     {
         final RemoteReference<T> reference = objects.getOrAddLocalObjectReference(hosting.getNodeAddress(), iClass, id, observer);

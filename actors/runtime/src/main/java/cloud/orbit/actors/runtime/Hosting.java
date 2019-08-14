@@ -169,6 +169,21 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         return clusterPeer.localAddress();
     }
 
+    public String getNodeName(final NodeAddress nodeAddress)
+    {
+        if (nodeAddress == null) {
+            return null;
+        }
+        Map<NodeAddress, NodeInfo> nodes = activeNodes;
+        for (Map.Entry<NodeAddress, NodeInfo> entry : nodes.entrySet())
+        {
+            if (nodeAddress.equals(entry.getKey())) {
+                return entry.getValue().nodeName;
+            }
+        }
+        return nodeAddress.asUUID().toString();
+    }
+
     @Override
     public Task<String> getPlacementGroup()
     {
@@ -670,6 +685,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 if (entry.getKey().equals(hostingInit.getNodeAddress()))
                 {
+                    entry.getValue().nodeName = hostingInit.getNodeName();
                     entry.getValue().canActivate.putAll(hostingInit.getSupportedActorInterfaces());
                 }
             }
@@ -810,7 +826,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                         .withInterfaceId(0)
                         .withMethodId(0)
                         .withMessageType(MessageDefinitions.HOSTING_INIT)
-                        .withPayload(supportedActivations));
+                        .withPayload(new HostingInitPayload(stage.getNodeName(), supportedActivations)));
             }
             return Task.done();
         }
