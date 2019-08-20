@@ -467,6 +467,9 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 message.setReferenceAddress(readNodeAddress(in));
                 message.setInterfaceId(in.readInt());
                 message.setMethodId(in.readInt());
+                message.withLocalRequestTime(in.readLong());
+                message.withRemoteInvocationCreationTime(in.readLong());
+                message.withRemoteInvocationCompletionTime(in.readLong());
                 message.setObjectId(readObjectId(kryo, in));
                 message.setHeaders(readHeaders(kryo, in));
                 message.setFromNode(readNodeAddress(in));
@@ -547,6 +550,9 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 writeNodeAddress(out, message.getReferenceAddress());
                 out.writeInt(message.getInterfaceId());
                 out.writeInt(message.getMethodId());
+                out.writeLong(message.getLocalRequestTime());
+                out.writeLong(message.getRemoteInvocationCreationTime());
+                out.writeLong(message.getRemoteInvocationCompletionTime());
                 writeObjectId(kryo, out, message);
                 writeHeaders(kryo, out, message.getHeaders());
                 writeNodeAddress(out, message.getFromNode());

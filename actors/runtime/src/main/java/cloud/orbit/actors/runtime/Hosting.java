@@ -73,11 +73,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     private Logger logger = LoggerFactory.getLogger(Hosting.class);
     private NodeTypeEnum nodeType;
     private ClusterPeer clusterPeer;
-    private boolean flushPlacementGroupCache = false;
 
     private volatile Map<NodeAddress, NodeInfo> activeNodes = new HashMap<>(0);
     private volatile List<NodeInfo> serverNodes = new ArrayList<>(0);
-    private final Object serverNodesUpdateMutex = new Object();
     private Stage stage;
 
     private final Cache<RemoteReference<?>, NodeAddress> localAddressCache;
@@ -85,7 +83,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     // don't use RemoteReferences, better to restrict keys to a small set of classes.
     private volatile DistributedMap<RemoteKey, NodeAddress> distributedDirectory;
 
-    private long timeToWaitForServersMillis = 30000;
+    private long timeToWaitForServersMillis = 5000;
 
     private TreeMap<String, NodeInfo> consistentHashNodeTree = new TreeMap<>();
     private final AnnotationCache<OnlyIfActivated> onlyIfActivateCache = new AnnotationCache<>(OnlyIfActivated.class);
@@ -255,17 +253,6 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         return Task.done();
     }
 
-    public boolean getFlushPlacementGroupCache()
-    {
-        return flushPlacementGroupCache;
-    }
-
-    public Hosting setFlushPlacementGroupCache(final boolean flushPlacementCache)
-    {
-        this.flushPlacementGroupCache = flushPlacementCache;
-        return this;
-    }
-
     private void onClusterViewChanged(final Collection<NodeAddress> nodes)
     {
         logger.info("Cluster view changed " + nodes + " on " + Thread.currentThread().getName());
@@ -301,29 +288,18 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         }
         activeNodes = newNodes;
 
+        consistentHashNodeTree = newHashes;
+
+        this.serverNodes = activeNodes.values().stream().filter(
+                nodeInfo -> nodeInfo.active && !nodeInfo.cannotHostActors).collect(Collectors.toList());
+
         stage.serverNodesUpdated();
 
-        consistentHashNodeTree = newHashes;
-        updateServerNodes();
-
         localAddressCache.asMap().values()
-            .removeAll(oldNodes.values().stream().map(e -> e.address)
-                    .collect(Collectors.toList()));
+                .removeAll(oldNodes.values().stream().map(e -> e.address)
+                        .collect(Collectors.toList()));
 
         // TODO notify someone?
-    }
-
-    private void updateServerNodes()
-    {
-        synchronized (serverNodesUpdateMutex)
-        {
-            this.serverNodes = activeNodes.values().stream().filter(
-                    nodeInfo -> nodeInfo.active && !nodeInfo.cannotHostActors).collect(Collectors.toList());
-            if (serverNodes.size() > 0)
-            {
-                serverNodesUpdateMutex.notifyAll();
-            }
-        }
     }
 
     public Task<NodeAddress> locateActor(final RemoteReference reference, final boolean forceActivation)
@@ -358,7 +334,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     {
         // removing the reference from the cluster directory and local caches
         await(getDistributedDirectory().remove(createRemoteKey(remoteReference), clusterPeer.localAddress())
-                .whenCompleteAsync((r, e) -> { }, stage.getExecutionPool()));
+                .whenCompleteAsync((r, e) -> {}, stage.getExecutionPool()));
         localAddressCache.invalidate(remoteReference);
 
         if (stage.getBroadcastActorDeactivations())
@@ -408,8 +384,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         final DistributedMap<RemoteKey, NodeAddress> distributedDirectory = getDistributedDirectory();
 
         // Get the existing activation from the distributed cache (if any)
-        NodeAddress nodeAddress = await(distributedDirectory.get(remoteKey)
-                .whenCompleteAsync((r, e) -> { }, stage.getExecutionPool()));
+        NodeAddress nodeAddress = await(distributedDirectory.get(remoteKey).whenCompleteAsync((r, e) -> {
+            // place holder, just to ensure the completion happens in another thread
+        }, stage.getExecutionPool()));
         if (nodeAddress != null)
         {
             // Target node still valid?
@@ -423,7 +400,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 // Target node is now dead, remove this activation from distributed cache
                 await(distributedDirectory.remove(remoteKey, nodeAddress)
-                        .whenCompleteAsync((r, e) -> { }, stage.getExecutionPool()));
+                        .whenCompleteAsync((r, e) -> {
+                            // place holder, just to ensure the completion happens in another thread
+                        }, stage.getExecutionPool()));
             }
         }
         nodeAddress = null;
@@ -478,117 +457,78 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     private Task<NodeAddress> selectNode(final String interfaceClassName)
     {
-        final long start = System.currentTimeMillis();
+        final List<NodeInfo> currentServerNodes = serverNodes;
 
-        while (true)
+        final List<NodeInfo> suitableNodes = currentServerNodes.stream()
+                .filter(n -> (!n.cannotHostActors && n.state == NodeState.RUNNING)
+                        && actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_no))
+                .collect(Collectors.toList());
+
+        if (!suitableNodes.isEmpty())
         {
-            if (System.currentTimeMillis() - start > timeToWaitForServersMillis)
-            {
-                final String timeoutMessage = "Timeout waiting for a server capable of handling: " + interfaceClassName;
-                logger.error(timeoutMessage);
-                if (logger.isDebugEnabled()) {
-                    for (NodeInfo info : serverNodes)
-                    {
-                        logger.debug(info.toString());
-                    }
-                }
-                return Task.fromException(new UncheckedException(timeoutMessage));
-            }
-
-            // read volatile fields into local fields
-            final List<NodeInfo> currentServerNodes = serverNodes;
-            final Set<String> currentTargetPlacementGroups = targetPlacementGroups;
-
-            // filter out nodes which cannot host actors (nodes which are not running and nodes which cannot host this actor)
-            // and nodes that are not in any target placement group
+            final NodeInfo nodeInfo = nodeSelector.select(interfaceClassName, getNodeAddress(), suitableNodes);
+            return Task.fromValue(nodeInfo.address);
+        }
+        else
+        {
             final List<NodeInfo> potentialNodes = currentServerNodes.stream()
                     .filter(n -> (!n.cannotHostActors && n.state == NodeState.RUNNING)
                             && actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_yes))
                     .collect(Collectors.toList());
 
-            if (potentialNodes.isEmpty())
+            for (NodeInfo potentialNode : potentialNodes)
             {
-                // fail if there are no nodes in the cluster and this nodes state is not running
-                if (stage.getState() != NodeCapabilities.NodeState.RUNNING)
+                potentialNode.canActivate2.putIfAbsent(interfaceClassName, new Task<>());
+                // loop over the potential nodes, add the interface to a concurrent hashset, if add returns true there is no activation pending
+                if (potentialNode.canActivatePending.add(interfaceClassName))
                 {
-                    return Task.fromException(new UncheckedException("No node found to activate " + interfaceClassName));
-                }
-                // "spin" and sleep every second to avoid burning cpu cycles, a node joining the cluster will interrupt the sleep
-                if (logger.isDebugEnabled())
-                {
-                    logger.info("No node available to activate actor: {}.", interfaceClassName);
-                }
-                waitForServers();
-            }
-            else
-            {
-                for (NodeInfo potentialNode : potentialNodes)
-                {
-                    // loop over the potential nodes, add the interface to a concurrent hashset, if add returns true there is no activation pending
-                    if (potentialNode.canActivatePending.add(interfaceClassName))
+                    // query if this node can activate this actor
+                    potentialNode.nodeCapabilities.canActivate(interfaceClassName).handle((result, throwable) ->
                     {
-                        // query if this node can activate this actor
-                        potentialNode.nodeCapabilities.canActivate(interfaceClassName).handle((result, throwable) ->
+                        if (throwable != null)
                         {
-                            if (throwable != null)
+                            // actor call to can activate failed, retry next loop
+                            potentialNode.canActivatePending.remove(interfaceClassName);
+                        }
+                        else
+                        {
+                            // node cannot host this actor, mark it so
+                            if (result == actorSupported_noneSupported)
                             {
-                                // actor call to can activate failed, retry next loop
-                                potentialNode.canActivatePending.remove(interfaceClassName);
+                                potentialNode.cannotHostActors = true;
+                                // jic
+                                potentialNode.canActivate.put(interfaceClassName, actorSupported_no);
                             }
                             else
                             {
-                                // node cannot host this actor, mark it so
-                                if (result == actorSupported_noneSupported)
-                                {
-                                    potentialNode.cannotHostActors = true;
-                                    // jic
-                                    potentialNode.canActivate.put(interfaceClassName, actorSupported_no);
-                                }
-                                else
-                                {
-                                    // found suitable host
-                                    potentialNode.canActivate.put(interfaceClassName, result);
-
-                                    synchronized (serverNodesUpdateMutex)
-                                    {
-                                        serverNodesUpdateMutex.notifyAll();
-                                    }
-                                }
+                                // found suitable host
+                                potentialNode.canActivate.put(interfaceClassName, result);
                             }
-                            return null;
-                        });
-                    }
+                            potentialNode.canActivate2.get(interfaceClassName).complete(null);
+                        }
+                        return null;
+                    });
                 }
+            }
 
-                final List<NodeInfo> suitableNodes = potentialNodes.stream()
+            return Task.allOf(potentialNodes.stream().map(nodeInfo ->
+                    nodeInfo.canActivate2.get(interfaceClassName)
+                            .failAfter(timeToWaitForServersMillis, TimeUnit.MILLISECONDS))
+                    .collect(Collectors.toList())).handle((aVoid, throwable) -> {
+                final List<NodeInfo> suitableNodes2 = potentialNodes.stream()
                         .filter(n -> actorSupported_no != n.canActivate.getOrDefault(interfaceClassName, actorSupported_no))
                         .collect(Collectors.toList());
 
-                if (suitableNodes.isEmpty())
+                if (!suitableNodes2.isEmpty())
                 {
-                    waitForServers();
+                    final NodeInfo nodeInfo = nodeSelector.select(interfaceClassName, getNodeAddress(), suitableNodes2);
+                    return nodeInfo.address;
                 }
                 else
                 {
-                    final NodeInfo nodeInfo = nodeSelector.select(interfaceClassName, getNodeAddress(), suitableNodes);
-                    return Task.fromValue(nodeInfo.address);
+                    throw new UncheckedException("No server capable of handling: " + interfaceClassName);
                 }
-            }
-        }
-    }
-
-    private void waitForServers()
-    {
-        synchronized (serverNodesUpdateMutex)
-        {
-            try
-            {
-                serverNodesUpdateMutex.wait(250);
-            }
-            catch (InterruptedException e)
-            {
-                Thread.currentThread().interrupt();
-            }
+            });
         }
     }
 
@@ -597,7 +537,6 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         final String interfaceClassName = interfaceClass.getName();
 
         if (interfaceClass.isAnnotationPresent(PreferLocalPlacement.class) &&
-                targetPlacementGroups.contains(stage.getPlacementGroup()) &&
                 nodeType == NodeTypeEnum.SERVER && stage.canActivateActor(interfaceClassName))
         {
             final int percentile = interfaceClass.getAnnotation(PreferLocalPlacement.class).percentile();
@@ -688,9 +627,6 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                     entry.getValue().nodeName = hostingInit.getNodeName();
                     entry.getValue().canActivate.putAll(hostingInit.getSupportedActorInterfaces());
                 }
-            }
-            synchronized (serverNodesUpdateMutex) {
-                serverNodesUpdateMutex.notifyAll();
             }
         }
         else

@@ -878,8 +878,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         hosting.setNodeSelector(nodeSelector);
         hosting.setTargetPlacementGroups(Collections.singleton(placementGroup));
 
-        hosting.setFlushPlacementGroupCache(this.getFlushPlacementGroupCache());
-
         // caches responses
         pipeline.addLast(DefaultHandlers.CACHING, cacheManager);
 

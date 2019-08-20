@@ -195,12 +195,12 @@ public class Messaging extends HandlerAdapter implements Startable
                     invocation.setFromNode(message.getFromNode());
                     invocation.setMessageId(messageId);
 
-                    final Task<Object> completion = new Task<>();
                     if (!invocation.isOneWay())
                     {
+                        final Task<Object> completion = new Task<>();
                         completion.whenComplete((r, e) -> sendResponseAndLogError(ctx, fromNode, messageId,classId, methodId, r, e, message.getLocalRequestTime(), invocation.getCreationTime(), invocation.getCompletionTime()));
+                        invocation.setCompletion(completion);
                     }
-                    invocation.setCompletion(completion);
                     ctx.fireRead(invocation);
                     return;
 
@@ -259,7 +259,7 @@ public class Messaging extends HandlerAdapter implements Startable
 
                         final long totalTime = System.currentTimeMillis() - message.getLocalRequestTime();
                         final long processingTime = message.getRemoteInvocationCompletionTime() - message.getRemoteInvocationCreationTime();
-                        logger.warn("Received response for pending request which timed out. From node {} to {}. Total time {}ms, processing time {}ms, transit time {}ms message id: {}, type: {} for {}.", ActorRuntime.getRuntime().getNodeName(message.getFromNode()), ActorRuntime.getRuntime().getNodeName(message.getToNode()), totalTime, processingTime, (totalTime - processingTime), messageId, messageType, getInvokedClassAndMethodName(message));
+                        logger.warn("Received response from node {} for pending request which timed out. Total time {}ms, processing time {}ms, transit time {}ms message id: {}, type: {} for {}.", ActorRuntime.getRuntime().getNodeName(message.getFromNode()), totalTime, processingTime, (totalTime - processingTime), messageId, messageType, getInvokedClassAndMethodName(message));
                         if (logger.isDebugEnabled()) {
                             logger.debug("Headers for message #" + messageId + " " + message.getHeaders());
                         }
