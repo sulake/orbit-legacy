@@ -33,7 +33,7 @@ import org.infinispan.AdvancedCache;
 /**
  * @author Johno Crawford (johno@sulake.com)
  */
-interface ExtendedClusterPeer extends ClusterPeer
+public interface ExtendedClusterPeer extends ClusterPeer
 {
     <K, V> DistributedMap<K, V> getCache(String cacheName);
     <K, V> AdvancedCache<K, V> getAdvancedCache(String cacheName);

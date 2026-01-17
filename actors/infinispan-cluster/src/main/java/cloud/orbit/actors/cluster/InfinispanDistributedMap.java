@@ -28,9 +28,8 @@
 
 package cloud.orbit.actors.cluster;
 
-import org.infinispan.Cache;
-
 import cloud.orbit.concurrent.Task;
+import org.infinispan.Cache;
 
 /**
  * @author Johno Crawford (johno@sulake.com)
