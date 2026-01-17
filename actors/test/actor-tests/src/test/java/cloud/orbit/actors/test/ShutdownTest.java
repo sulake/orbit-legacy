@@ -122,5 +122,52 @@ public class ShutdownTest extends ActorBaseTest
 
     }
 
+    @Test(timeout = 10_000L)
+    public void stoppingNodeDeclinesActivationWhenOtherServersPresent() throws ExecutionException, InterruptedException
+    {
+        Stage stage1 = createStage();
+        Stage stage2 = createStage();
+        Stage client = createClient();
+        eventuallyTrue(() -> stage1.getHosting().getServerNodes().size() >= 2);
+
+        Task<Void> methodCall = Actor.getReference(Shut.class, "0").doSomethingBlocking();
+        fakeSync.semaphore("executing").acquire();
+
+        final Task<?> stopFuture = Task.runAsync(() -> stage1.stop().join());
+        waitFor(() -> stage1.getState() == NodeCapabilities.NodeState.STOPPING);
+
+        int canActivate = stage1.getHosting().canActivate(Shut.class.getName()).join();
+        assertEquals(NodeCapabilities.actorSupported_noneSupported, canActivate);
+
+        fakeSync.semaphore("canFinish").release();
+        stopFuture.join();
+        eventuallyTrue(methodCall::isDone);
+
+        stage2.stop().join();
+        client.stop().join();
+    }
+
+    @Test(timeout = 10_000L)
+    public void stoppingNodeAllowsActivationWhenAlone() throws ExecutionException, InterruptedException
+    {
+        Stage stage1 = createStage();
+        Stage client = createClient();
+
+        Task<Void> methodCall = Actor.getReference(Shut.class, "0").doSomethingBlocking();
+        fakeSync.semaphore("executing").acquire();
+
+        final Task<?> stopFuture = Task.runAsync(() -> stage1.stop().join());
+        waitFor(() -> stage1.getState() == NodeCapabilities.NodeState.STOPPING);
+
+        int canActivate = stage1.getHosting().canActivate(Shut.class.getName()).join();
+        assertEquals(NodeCapabilities.actorSupported_yes, canActivate);
+
+        fakeSync.semaphore("canFinish").release();
+        stopFuture.join();
+        eventuallyTrue(methodCall::isDone);
+
+        client.stop().join();
+    }
+
 
 }

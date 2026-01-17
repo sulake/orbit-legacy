@@ -278,7 +278,7 @@ public class Messaging extends HandlerAdapter implements Startable
                 case MessageDefinitions.HOSTING_INIT:
                     HostingInitPayload hostingInitPayload = (HostingInitPayload) message.getPayload();
                     ctx.fireRead(new HostingInit(hostingInitPayload.getNodeName(), message.getFromNode(),
-                            hostingInitPayload.getSupportedActivations()));
+                            hostingInitPayload.getSupportedActivations(), hostingInitPayload.getNodeType()));
                     break;
                 default:
                     logger.error("Illegal protocol, invalid message type: {}", messageType);

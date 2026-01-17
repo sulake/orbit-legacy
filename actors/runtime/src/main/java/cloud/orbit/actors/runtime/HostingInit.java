@@ -29,6 +29,7 @@
 package cloud.orbit.actors.runtime;
 
 import cloud.orbit.actors.cluster.NodeAddress;
+import cloud.orbit.actors.runtime.NodeCapabilities.NodeTypeEnum;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -40,13 +41,16 @@ public class HostingInit implements Serializable
     private final String nodeName;
     private final NodeAddress nodeAddress;
     private final Map<String, Integer> supportedActorInterfaces;
+    private final NodeTypeEnum nodeType;
 
     public HostingInit(final String nodeName, final NodeAddress nodeAddress,
-                       final Map<String, Integer> supportedActorInterfaces)
+                       final Map<String, Integer> supportedActorInterfaces,
+                       final NodeTypeEnum nodeType)
     {
         this.nodeName = nodeName;
         this.nodeAddress = nodeAddress;
         this.supportedActorInterfaces = supportedActorInterfaces;
+        this.nodeType = nodeType;
     }
 
     public String getNodeName()
@@ -64,6 +68,11 @@ public class HostingInit implements Serializable
         return supportedActorInterfaces;
     }
 
+    public NodeTypeEnum getNodeType()
+    {
+        return nodeType;
+    }
+
     @Override
     public String toString()
     {
@@ -71,6 +80,7 @@ public class HostingInit implements Serializable
                 "nodeName=" + nodeName +
                 ", nodeAddress=" + nodeAddress +
                 ", supportedActorInterfaces=" + supportedActorInterfaces.keySet() +
+                ", nodeType=" + nodeType +
                 '}';
     }
 }

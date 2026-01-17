@@ -31,12 +31,15 @@ package cloud.orbit.actors.runtime;
 import java.io.Serializable;
 import java.util.Map;
 
+import cloud.orbit.actors.runtime.NodeCapabilities.NodeTypeEnum;
+
 public class HostingInitPayload implements Serializable
 {
     private static final long serialVersionUID = 1L;
 
     private String nodeName;
     private Map<String, Integer> supportedActivations;
+    private NodeTypeEnum nodeType;
 
     public HostingInitPayload()
     {
@@ -48,6 +51,14 @@ public class HostingInitPayload implements Serializable
         this.supportedActivations = supportedActivations;
     }
 
+    public HostingInitPayload(final String nodeName, final Map<String, Integer> supportedActivations,
+            final NodeTypeEnum nodeType)
+    {
+        this.nodeName = nodeName;
+        this.supportedActivations = supportedActivations;
+        this.nodeType = nodeType;
+    }
+
     public String getNodeName()
     {
         return nodeName;
@@ -56,5 +67,10 @@ public class HostingInitPayload implements Serializable
     public Map<String, Integer> getSupportedActivations()
     {
         return supportedActivations;
+    }
+
+    public NodeTypeEnum getNodeType()
+    {
+        return nodeType;
     }
 }
