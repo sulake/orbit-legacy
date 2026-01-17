@@ -50,5 +50,10 @@
     <MFC max_credits="2m"
          min_threshold="0.40"
     />
+    <FORK>
+        <fork-stacks>
+            <fork-stack id="hijack-stack"/>
+        </fork-stacks>
+    </FORK>
     <FRAG3/>
 </config>
