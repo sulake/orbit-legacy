@@ -1,7 +1,7 @@
 <img src="https://www.orbit.cloud/img/orbit-logo-black.png" alt="Orbit Logo" width="200px"/>
 
 [![Release](https://img.shields.io/github/release/orbit/orbit-legacy.svg)](https://github.com/orbit/orbit-legacy/releases)
-[![Build Status](https://img.shields.io/travis/com/orbit/orbit-legacy)](https://travis-ci.com/orbit/orbit-legacy)
+[![CI](https://github.com/sulake/orbit-legacy/actions/workflows/ci.yml/badge.svg)](https://github.com/sulake/orbit-legacy/actions/workflows/ci.yml)
 [![Gitter](https://img.shields.io/badge/style-Join_Chat-ff69b4.svg?style=flat&label=gitter)](https://gitter.im/orbit/orbit)
 [![Twitter Follow](https://img.shields.io/twitter/follow/OrbitFramework.svg?style=flat&maxAge=86400)](https://twitter.com/orbitframework)
 

@@ -163,6 +163,7 @@ public class SimpleInvocationHandler implements InvocationHandler
                         invocation.getToReference().toString(), method != null ? method.getName() : invocation.getMethodId(), durationMs);
             }
         }
+        invocation.setCompletionTime(System.currentTimeMillis());
     }
 
     public void setPerformanceLoggingEnabled(boolean performanceLoggingEnabled)

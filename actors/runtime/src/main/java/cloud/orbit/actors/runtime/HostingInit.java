@@ -26,35 +26,51 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.test;
+package cloud.orbit.actors.runtime;
 
-import org.junit.Test;
+import cloud.orbit.actors.cluster.NodeAddress;
 
-import cloud.orbit.actors.Actor;
-import cloud.orbit.actors.Stage;
-import cloud.orbit.actors.test.actors.SomeActor;
+import java.io.Serializable;
+import java.util.Map;
 
-public class FlushPlacementGroupTest extends ActorBaseTest
+public class HostingInit implements Serializable
 {
-    @Test(expected = Exception.class)
-    public void testFlushPlacementCache() throws Exception {
-        final Stage client = createStage(builder ->{
-            builder.mode(Stage.StageMode.CLIENT);
-            builder.flushPlacementGroupCache(true);
-        }) ;
+    private static final long serialVersionUID = 1L;
 
-        final Stage server = createStage(builder -> {
-            builder.flushPlacementGroupCache(true);
-        });
+    private final String nodeName;
+    private final NodeAddress nodeAddress;
+    private final Map<String, Integer> supportedActorInterfaces;
 
-        client.bind();
+    public HostingInit(final String nodeName, final NodeAddress nodeAddress,
+                       final Map<String, Integer> supportedActorInterfaces)
+    {
+        this.nodeName = nodeName;
+        this.nodeAddress = nodeAddress;
+        this.supportedActorInterfaces = supportedActorInterfaces;
+    }
 
-        Actor.getReference(SomeActor.class, "test").sayHello("Test").join();
+    public String getNodeName()
+    {
+        return nodeName;
+    }
 
-        server.setPlacementGroup("draining");
+    public NodeAddress getNodeAddress()
+    {
+        return nodeAddress;
+    }
 
-        client.pulse().join();
+    public Map<String, Integer> getSupportedActorInterfaces()
+    {
+        return supportedActorInterfaces;
+    }
 
-        Actor.getReference(SomeActor.class, "test2").sayHello("Test").join();
+    @Override
+    public String toString()
+    {
+        return "HostingInit{" +
+                "nodeName=" + nodeName +
+                ", nodeAddress=" + nodeAddress +
+                ", supportedActorInterfaces=" + supportedActorInterfaces.keySet() +
+                '}';
     }
 }

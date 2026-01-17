@@ -81,6 +81,7 @@ import cloud.orbit.actors.runtime.LocalObjectsCleaner;
 import cloud.orbit.actors.runtime.MessageLoopback;
 import cloud.orbit.actors.runtime.Messaging;
 import cloud.orbit.actors.runtime.NodeCapabilities;
+import cloud.orbit.actors.runtime.NodeJoinedEvent;
 import cloud.orbit.actors.runtime.ObserverEntry;
 import cloud.orbit.actors.runtime.RandomSelectorExtension;
 import cloud.orbit.actors.runtime.Registration;
@@ -122,6 +123,7 @@ import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -162,9 +164,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     @Config("orbit.actors.clusterName")
     private String clusterName;
-
-    @Config("orbit.actors.placementGroup")
-    private String placementGroup;
 
     @Config("orbit.actors.nodeName")
     private String nodeName;
@@ -208,9 +207,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Config("orbit.actors.broadcastActorDeactivations")
     private boolean broadcastActorDeactivations = true;
 
-    @Config("orbit.actors.flushPlacementGroupCache")
-    private boolean flushPlacementGroupCache = false;
-
     private boolean enableMessageLoopback = true;
 
     private volatile NodeCapabilities.NodeState state;
@@ -236,8 +232,18 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     private Pipeline pipeline;
 
     private final Task<Void> startPromise = new Task<>();
-    private Thread shutdownHook = null;
-    private final Object shutdownLock = new Object();
+
+    private final Executor pipelineExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+        thread.setName("OrbitPipelineThread");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    public void serverNodesUpdated()
+    {
+        CompletableFuture.runAsync(() -> pipeline.write(new NodeJoinedEvent()), pipelineExecutor);
+    }
 
     public enum StageMode
     {
@@ -267,7 +273,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         private LocalObjectsCleaner localObjectsCleaner;
 
         private String clusterName;
-        private String placementGroup;
         private String nodeName;
         private StageMode mode = StageMode.HOST;
         private int executionPoolSize = DEFAULT_EXECUTION_POOL_SIZE;
@@ -285,7 +290,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         private Integer concurrentDeactivations;
         private Boolean enableShutdownHook = null;
         private Boolean enableMessageLoopback;
-        private Boolean flushPlacementGroupCache;
 
         private Timer timer;
 
@@ -370,12 +374,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         public Builder clusterName(String clusterName)
         {
             this.clusterName = clusterName;
-            return this;
-        }
-
-        public Builder placementGroup(String placementGroup)
-        {
-            this.placementGroup = placementGroup;
             return this;
         }
 
@@ -471,11 +469,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             return this;
         }
 
-        public Builder flushPlacementGroupCache(final boolean flushPlacementGroupCache) {
-            this.flushPlacementGroupCache = flushPlacementGroupCache;
-            return this;
-        }
-
         public Stage build()
         {
             final Stage stage = new Stage();
@@ -486,7 +479,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             stage.setMessageLoopbackObjectCloner(messageLoopbackObjectCloner);
             stage.setMessageSerializer(messageSerializer);
             stage.setClusterName(clusterName);
-            stage.setPlacementGroup(placementGroup);
             stage.setClusterPeer(clusterPeer);
             stage.setNodeName(nodeName);
             stage.setMode(mode);
@@ -507,7 +499,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             if(broadcastActorDeactivations != null) stage.setBroadcastActorDeactivations(broadcastActorDeactivations);
             if(enableShutdownHook != null) stage.setEnableShutdownHook(enableShutdownHook);
             if(enableMessageLoopback != null) stage.setEnableMessageLoopback(enableMessageLoopback);
-            if (flushPlacementGroupCache != null) stage.setFlushPlacementGroupCache(flushPlacementGroupCache);
             return stage;
         }
 
@@ -617,16 +608,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         this.clusterName = clusterName;
     }
 
-    public String getPlacementGroup()
-    {
-        return placementGroup;
-    }
-
-    public void setPlacementGroup(final String placementGroup)
-    {
-        this.placementGroup = placementGroup;
-    }
-
     public String getNodeName()
     {
         return nodeName;
@@ -714,14 +695,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         this.enableMessageLoopback = enableMessageLoopback;
     }
 
-    public void setFlushPlacementGroupCache(final boolean flushPlacementGroupCache) {
-        this.flushPlacementGroupCache = flushPlacementGroupCache;
-    }
-
-    public boolean getFlushPlacementGroupCache() {
-        return this.flushPlacementGroupCache;
-    }
-
     @Override
     public Task<?> start()
     {
@@ -752,11 +725,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         if (clusterName == null || clusterName.isEmpty())
         {
             setClusterName("orbit-cluster");
-        }
-
-        if (placementGroup == null || placementGroup.isEmpty())
-        {
-            setPlacementGroup("default");
         }
 
         if (nodeName == null || nodeName.isEmpty())
@@ -862,9 +830,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                 .findFirst()
                 .orElse(new RandomSelectorExtension());
         hosting.setNodeSelector(nodeSelector);
-        hosting.setTargetPlacementGroups(Collections.singleton(placementGroup));
-
-        hosting.setFlushPlacementGroupCache(this.getFlushPlacementGroupCache());
 
         // caches responses
         pipeline.addLast(DefaultHandlers.CACHING, cacheManager);
@@ -889,7 +854,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         pipeline.addLast(DefaultHandlers.SERIALIZATION, new SerializationHandler(this, messageSerializer));
 
         // cluster peer handler
-        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, clusterName, nodeName));
+        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, executionPool, clusterName, nodeName));
 
         extensions.stream().filter(extension -> extension instanceof PipelineExtension)
                 .map(extension -> (PipelineExtension) extension)
@@ -1076,7 +1041,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
         do
         {
-            InternalUtils.sleep(250);
+            InternalUtils.sleep(2000);
         } while (executionSerializer.isBusy());
 
         logger.debug("Closing pipeline");
@@ -1091,14 +1056,18 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         state = NodeCapabilities.NodeState.STOPPED;
         logger.debug("Stop done");
 
-
-
         return Task.done();
     }
 
     private Task<Void> stopActors()
     {
+        if (localObjectsCleaner == null)
+        {
+            logger.error("No local objects cleaner configured..");
+            return Task.done();
+        }
         return localObjectsCleaner.shutdown();
+
     }
 
     private Task<Void> stopTimers()
@@ -1137,7 +1106,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     public ClusterPeer getClusterPeer()
     {
-
         return clusterPeer != null ? clusterPeer : (clusterPeer = constructDefaultClusterPeer());
     }
 
@@ -1148,9 +1116,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             startReminderController();
         }
         await(clusterPeer.pulse());
-
-        hosting.pulse();
-
+        serverNodesUpdated();
         return cleanup();
     }
 
@@ -1422,6 +1388,12 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     }
 
     @Override
+    public String getNodeName(final NodeAddress nodeAddress)
+    {
+        return hosting.getNodeName(nodeAddress);
+    }
+
+    @Override
     public <T extends ActorObserver> T registerObserver(Class<T> iClass, String id, final T observer)
     {
         final RemoteReference<T> reference = objects.getOrAddLocalObjectReference(hosting.getNodeAddress(), iClass, id, observer);
@@ -1599,6 +1571,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         }
         final Class<?> concreteClass = finder.findActorImplementation(aInterface);
         return concreteClass != null;
+    }
+
+    public Set<String> findSupportedActorInterfaces()
+    {
+        return finder.getAllActorInterfaces();
     }
 
     public Pipeline getPipeline()

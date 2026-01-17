@@ -33,6 +33,8 @@ import cloud.orbit.actors.annotation.OneWay;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.concurrent.Task;
 
+import java.util.Map;
+
 public interface NodeCapabilities extends ActorObserver
 {
     enum NodeTypeEnum
@@ -48,8 +50,6 @@ public interface NodeCapabilities extends ActorObserver
     int actorSupported_yes = 1;
     int actorSupported_no = 0;
     int actorSupported_noneSupported = 2;
-
-    Task<String> getPlacementGroup();
 
     /**
      * Asked a single time or infrequently to find out if this node knows and is able to serve this kind of actor.

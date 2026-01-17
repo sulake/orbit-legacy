@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2019 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -28,15 +28,33 @@
 
 package cloud.orbit.actors.runtime;
 
-public class MessageDefinitions
+import java.io.Serializable;
+import java.util.Map;
+
+public class HostingInitPayload implements Serializable
 {
-    public static final byte ONE_WAY_MESSAGE = 0;
-    public static final byte REQUEST_MESSAGE = 1;
-    public static final byte RESPONSE_OK = 2;
-    public static final byte RESPONSE_ERROR = 3;
-    public static final byte RESPONSE_PROTOCOL_ERROR = 4;
-    public static final byte HOSTING_INIT = 5;
+    private static final long serialVersionUID = 1L;
 
-    // COMMON HEADERS
+    private String nodeName;
+    private Map<String, Integer> supportedActivations;
 
+    public HostingInitPayload()
+    {
+    }
+
+    public HostingInitPayload(final String nodeName, final Map<String, Integer> supportedActivations)
+    {
+        this.nodeName = nodeName;
+        this.supportedActivations = supportedActivations;
+    }
+
+    public String getNodeName()
+    {
+        return nodeName;
+    }
+
+    public Map<String, Integer> getSupportedActivations()
+    {
+        return supportedActivations;
+    }
 }

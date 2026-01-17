@@ -197,8 +197,8 @@ public class Messaging extends HandlerAdapter implements Startable
 
                     if (!invocation.isOneWay())
                     {
-                        Task<Object> completion = new Task<>();
-                        completion.whenComplete((r, e) -> sendResponseAndLogError(ctx, fromNode, messageId,classId, methodId, r, e));
+                        final Task<Object> completion = new Task<>();
+                        completion.whenComplete((r, e) -> sendResponseAndLogError(ctx, fromNode, messageId,classId, methodId, r, e, message.getLocalRequestTime(), invocation.getCreationTime(), invocation.getCompletionTime()));
                         invocation.setCompletion(completion);
                     }
                     ctx.fireRead(invocation);
@@ -256,7 +256,10 @@ public class Messaging extends HandlerAdapter implements Startable
                     else
                     {
                         // missing counterpart
-                        logger.warn("Received response for pending request which timed out (took > " + getResponseTimeoutMillis(message) + "ms) message id: {}, type: {} for {}.", messageId, messageType, getInvokedClassAndMethodName(message));
+
+                        final long totalTime = System.currentTimeMillis() - message.getLocalRequestTime();
+                        final long processingTime = message.getRemoteInvocationCompletionTime() - message.getRemoteInvocationCreationTime();
+                        logger.warn("Received response from node {} for pending request which timed out. Total time {}ms, processing time {}ms, transit time {}ms message id: {}, type: {} for {}.", ActorRuntime.getRuntime().getNodeName(message.getFromNode()), totalTime, processingTime, (totalTime - processingTime), messageId, messageType, getInvokedClassAndMethodName(message));
                         if (logger.isDebugEnabled()) {
                             logger.debug("Headers for message #" + messageId + " " + message.getHeaders());
                         }
@@ -272,6 +275,11 @@ public class Messaging extends HandlerAdapter implements Startable
                     }
                     break;
                 }
+                case MessageDefinitions.HOSTING_INIT:
+                    HostingInitPayload hostingInitPayload = (HostingInitPayload) message.getPayload();
+                    ctx.fireRead(new HostingInit(hostingInitPayload.getNodeName(), message.getFromNode(),
+                            hostingInitPayload.getSupportedActivations()));
+                    break;
                 default:
                     logger.error("Illegal protocol, invalid message type: {}", messageType);
                     return;
@@ -296,19 +304,20 @@ public class Messaging extends HandlerAdapter implements Startable
         return null;
     }
 
-    protected void sendResponseAndLogError(HandlerContext ctx, final NodeAddress from, int messageId, final int classId, final int methodId, Object result, Throwable exception)
+    protected void sendResponseAndLogError(HandlerContext ctx, final NodeAddress from, int messageId, final int classId,
+                                           final int methodId, Object result, Throwable exception, long localRequestTime, long invocationCreationTime, long invocationCompletionTime)
     {
         if (exception == null)
         {
-            sendResponse(ctx, from, MessageDefinitions.RESPONSE_OK, messageId, classId, methodId, result);
+            sendResponse(ctx, from, MessageDefinitions.RESPONSE_OK, messageId, classId, methodId, result, localRequestTime, invocationCreationTime, invocationCompletionTime);
         }
         else
         {
-            sendResponse(ctx, from, MessageDefinitions.RESPONSE_ERROR, messageId, classId, methodId, exception);
+            sendResponse(ctx, from, MessageDefinitions.RESPONSE_ERROR, messageId, classId, methodId, exception, localRequestTime, invocationCreationTime, invocationCompletionTime);
         }
     }
 
-    private Task sendResponse(HandlerContext ctx, NodeAddress to, int messageType, int messageId, final int classId, final int methodId, Object res)
+    private Task sendResponse(HandlerContext ctx, NodeAddress to, int messageType, int messageId, final int classId, final int methodId, Object res, long localRequestTime, long invocationCreationTime, long invocationCompletionTime)
     {
         return ctx.write(new Message()
                 .withToNode(to)
@@ -316,7 +325,11 @@ public class Messaging extends HandlerAdapter implements Startable
                 .withInterfaceId(classId)
                 .withMethodId(methodId)
                 .withMessageType(messageType)
-                .withPayload(res));
+                .withPayload(res)
+                .withLocalRequestTime(localRequestTime)
+                .withRemoteInvocationCreationTime(invocationCreationTime)
+                .withRemoteInvocationCompletionTime(invocationCompletionTime)
+        );
     }
 
     @Override
@@ -348,6 +361,7 @@ public class Messaging extends HandlerAdapter implements Startable
 
         final Message message = new Message()
                 .withMessageType(invocation.isOneWay() ? MessageDefinitions.ONE_WAY_MESSAGE : MessageDefinitions.REQUEST_MESSAGE)
+                .withLocalRequestTime(System.currentTimeMillis())
                 .withToNode(toNode)
                 .withFromNode(invocation.getFromNode())
                 .withHeaders(actualHeaders)

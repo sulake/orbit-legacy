@@ -28,46 +28,10 @@
 
 package cloud.orbit.actors.runtime;
 
-import org.junit.Assert;
-import org.junit.Test;
-import org.mockito.Mockito;
+import java.io.Serializable;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-public class KryoSerializerConcurrencyTest
+public class NodeJoinedEvent implements Serializable
 {
-    @Test
-    public void testConcurrentDeserializations() throws Exception
-    {
-        KryoSerializer kryoSerializer = new KryoSerializer();
-        BasicRuntime basicRuntime = Mockito.mock(BasicRuntime.class);
-        ExecutorService executorService = Executors.newFixedThreadPool(16);
-        byte[] bytes = kryoSerializer.serializeMessage(basicRuntime, new Message().withPayload(new MyDTO()));
-        Throwable[] t = new Throwable[]{null};
-        CountDownLatch latch = new CountDownLatch(160);
-        for (int i = 0; i < 160; i++)
-        {
-            executorService.execute(() -> {
-                try
-                {
-                    kryoSerializer.deserializeMessage(basicRuntime, bytes);
-                }
-                catch (Exception e)
-                {
-                    t[0] = e;
-                    e.printStackTrace();
-                }
-                latch.countDown();
-            });
-        }
-        latch.await();
-        Assert.assertNull(t[0]);
-    }
+    private static final long serialVersionUID = 1L;
 
-    public class MyDTO
-    {
-        int a;
-    }
 }

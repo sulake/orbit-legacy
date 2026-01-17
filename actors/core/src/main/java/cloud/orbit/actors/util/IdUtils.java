@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class IdUtils
 {
-    private static AtomicLong nexLongId = new AtomicLong();
+    private static final AtomicLong nexLongId = new AtomicLong();
 
     private static class Holder
     {

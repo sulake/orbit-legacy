@@ -99,6 +99,8 @@ public interface ActorRuntime extends BasicRuntime
      */
     NodeAddress getLocalAddress();
 
+    String getNodeName(NodeAddress nodeAddress);
+
 
     /**
      * Gets a string that represents uniquely the node that currently holds this actor.

@@ -58,6 +58,11 @@ public class Message
     private int methodId;
     private Object payload;
 
+    private long localRequestTime;
+
+    private long remoteInvocationCreationTime;
+    private long remoteInvocationCompletionTime;
+
     public Message()
     {
     }
@@ -171,6 +176,21 @@ public class Message
         return messageType;
     }
 
+    public long getLocalRequestTime()
+    {
+        return localRequestTime;
+    }
+
+    public long getRemoteInvocationCreationTime()
+    {
+        return remoteInvocationCreationTime;
+    }
+
+    public long getRemoteInvocationCompletionTime()
+    {
+        return remoteInvocationCompletionTime;
+    }
+
     public void setMessageType(final int messageType)
     {
         this.messageType = messageType;
@@ -199,6 +219,24 @@ public class Message
     public Message withPayload(final Object payload)
     {
         this.payload = payload;
+        return this;
+    }
+
+    public Message withLocalRequestTime(final long localRequestTime)
+    {
+        this.localRequestTime = localRequestTime;
+        return this;
+    }
+
+    public Message withRemoteInvocationCreationTime(final long remoteInvocationCreationTime)
+    {
+        this.remoteInvocationCreationTime = remoteInvocationCreationTime;
+        return this;
+    }
+
+    public Message withRemoteInvocationCompletionTime(final long remoteInvocationCompletionTime)
+    {
+        this.remoteInvocationCompletionTime = remoteInvocationCompletionTime;
         return this;
     }
 

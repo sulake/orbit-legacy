@@ -32,6 +32,8 @@ import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.extensions.ActorClassFinder;
 
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Set;
 import java.util.function.Predicate;
 
 public class LazyActorClassFinder implements ActorClassFinder
@@ -48,5 +50,11 @@ public class LazyActorClassFinder implements ActorClassFinder
     public <T extends Actor> Collection<Class<? extends T>> findActorInterfaces(final Predicate<Class<T>> predicate)
     {
         throw new UnsupportedOperationException("Use FastActorClassFinder instead");
+    }
+
+    @Override
+    public Set<String> getAllActorInterfaces()
+    {
+        return Collections.emptySet();
     }
 }

@@ -46,7 +46,6 @@ import cloud.orbit.actors.concurrent.MultiExecutionSerializer;
 import cloud.orbit.actors.concurrent.WaitFreeExecutionSerializer;
 import cloud.orbit.actors.extensions.LifetimeExtension;
 import cloud.orbit.actors.extensions.json.InMemoryJSONStorageExtension;
-import cloud.orbit.actors.extensions.json.JsonMessageSerializer;
 import cloud.orbit.actors.runtime.AbstractActor;
 import cloud.orbit.actors.runtime.AbstractExecution;
 import cloud.orbit.actors.runtime.ActorFactoryGenerator;
@@ -233,7 +232,7 @@ public class ActorBaseTest
 
     public ClientPeer createRemoteClient(Stage stage)
     {
-        final JsonMessageSerializer serializer = new JsonMessageSerializer();
+        final JavaMessageSerializer serializer = new JavaMessageSerializer();
         final ShortCircuitHandler network = new ShortCircuitHandler();
         network.setExecutor(new WaitFreeExecutionSerializer(commonPool));
 

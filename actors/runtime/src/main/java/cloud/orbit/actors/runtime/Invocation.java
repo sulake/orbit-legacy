@@ -31,11 +31,14 @@ package cloud.orbit.actors.runtime;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.concurrent.Task;
 
+import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.Map;
 
-public class Invocation
+public class Invocation implements Serializable
 {
+    private static final long serialVersionUID = 1L;
+
     private RemoteReference toReference;
     private Method method;
     private boolean oneWay;
@@ -47,6 +50,8 @@ public class Invocation
     private NodeAddress fromNode;
     private int hops;
     private int messageId;
+    private long creationTime = System.currentTimeMillis();
+    private long completionTime;
 
     public Invocation()
     {
@@ -86,6 +91,21 @@ public class Invocation
     public Object[] getParams()
     {
         return params;
+    }
+
+    public void setCompletionTime(final long completionTime)
+    {
+        this.completionTime = completionTime;
+    }
+
+    public long getCreationTime()
+    {
+        return creationTime;
+    }
+
+    public long getCompletionTime()
+    {
+        return completionTime;
     }
 
     public Task getCompletion()

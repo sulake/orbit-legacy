@@ -2,22 +2,22 @@ package cloud.orbit.actors.runtime;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.actors.runtime.NodeCapabilities.NodeState;
+import cloud.orbit.concurrent.Task;
 
 public class NodeInfo
 {
     boolean active;
     final NodeAddress address;
-    final AtomicBoolean placementGroupPending = new AtomicBoolean(true);
-    String placementGroup;
     NodeState state = NodeState.RUNNING;
     NodeCapabilities nodeCapabilities;
     boolean cannotHostActors;
     final ConcurrentHashMap<String, Integer> canActivate = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<String, Task<Void>> canActivate2 = new ConcurrentHashMap<>();
     final Set<String> canActivatePending = ConcurrentHashMap.newKeySet();
+    String nodeName;
 
     public NodeInfo(final NodeAddress address)
     {

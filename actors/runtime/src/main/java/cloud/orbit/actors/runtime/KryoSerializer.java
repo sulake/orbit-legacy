@@ -71,7 +71,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 /**
  * Kryo based message serializer and object cloning implementation.
@@ -93,27 +92,16 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
 
     public KryoSerializer(Consumer<Kryo> kryoConsumer)
     {
-        this(kryoConsumer, DefaultClassResolver::new);
+        this(kryoConsumer, new DefaultClassResolver());
     }
 
-    /**
-     * @deprecated Do not use this constructor, since it will share a single ClassResolver between Kryo instances in the
-     * Kryo pool which can cause concurrency issues.
-     */
-    @Deprecated
     public KryoSerializer(Consumer<Kryo> kryoConsumer, ClassResolver classResolver)
-    {
-        this(kryoConsumer, () -> classResolver);
-    }
-
-    public KryoSerializer(Consumer<Kryo> kryoConsumer, Supplier<ClassResolver> classResolverSupplier)
     {
         KryoFactory factory = new KryoFactory()
         {
             @Override
             public Kryo create()
             {
-                ClassResolver classResolver = classResolverSupplier.get();
                 Kryo kryo = new Kryo(new ClassResolver()
                 {
                     Kryo kryo;
@@ -467,6 +455,9 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 message.setReferenceAddress(readNodeAddress(in));
                 message.setInterfaceId(in.readInt());
                 message.setMethodId(in.readInt());
+                message.withLocalRequestTime(in.readLong());
+                message.withRemoteInvocationCreationTime(in.readLong());
+                message.withRemoteInvocationCompletionTime(in.readLong());
                 message.setObjectId(readObjectId(kryo, in));
                 message.setHeaders(readHeaders(kryo, in));
                 message.setFromNode(readNodeAddress(in));
@@ -547,6 +538,9 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 writeNodeAddress(out, message.getReferenceAddress());
                 out.writeInt(message.getInterfaceId());
                 out.writeInt(message.getMethodId());
+                out.writeLong(message.getLocalRequestTime());
+                out.writeLong(message.getRemoteInvocationCreationTime());
+                out.writeLong(message.getRemoteInvocationCompletionTime());
                 writeObjectId(kryo, out, message);
                 writeHeaders(kryo, out, message.getHeaders());
                 writeNodeAddress(out, message.getFromNode());

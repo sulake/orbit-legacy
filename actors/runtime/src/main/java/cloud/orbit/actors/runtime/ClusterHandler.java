@@ -38,16 +38,20 @@ import cloud.orbit.tuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.Executor;
+
 public class ClusterHandler extends HandlerAdapter
 {
     private static Logger logger = LoggerFactory.getLogger(ClusterHandler.class);
-    private ClusterPeer clusterPeer;
+    private final ClusterPeer clusterPeer;
+    private final Executor executionPool;
     private String clusterName;
     private String nodeName;
 
-    public ClusterHandler(final ClusterPeer clusterPeer, final String clusterName, final String nodeName)
+    public ClusterHandler(final ClusterPeer clusterPeer, final Executor executionPool, final String clusterName, final String nodeName)
     {
         this.clusterPeer = clusterPeer;
+        this.executionPool = executionPool;
         this.clusterName = clusterName;
         this.nodeName = nodeName;
     }
