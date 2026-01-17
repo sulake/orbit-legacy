@@ -15,7 +15,7 @@ public class NodeInfo
     NodeCapabilities nodeCapabilities;
     boolean cannotHostActors;
     final ConcurrentHashMap<String, Integer> canActivate = new ConcurrentHashMap<>();
-    final ConcurrentHashMap<String, Task<Void>> canActivate2 = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<String, Task<Void>> canActivateWaiters = new ConcurrentHashMap<>();
     final Set<String> canActivatePending = ConcurrentHashMap.newKeySet();
     String nodeName;
 

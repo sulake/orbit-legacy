@@ -52,6 +52,7 @@ import cloud.orbit.util.AnnotationCache;
 
 import java.lang.reflect.Method;
 import java.security.MessageDigest;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -144,6 +145,17 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     public Task<?> notifyStateChange()
     {
+        final NodeInfo localNode = activeNodes.get(clusterPeer.localAddress());
+        if (localNode != null)
+        {
+            localNode.state = stage.getState();
+            if (localNode.state != NodeState.RUNNING)
+            {
+                localNode.canActivate.clear();
+                localNode.canActivatePending.clear();
+                localNode.canActivateWaiters.clear();
+            }
+        }
         return Task.allOf(activeNodes.values().stream()
                 .filter(nodeInfo -> !nodeInfo.address.equals(clusterPeer.localAddress()) && nodeInfo.state == NodeState.RUNNING)
                 .map(info -> info.nodeCapabilities.nodeModeChanged(clusterPeer.localAddress(), stage.getState()).exceptionally(throwable -> null)));
@@ -172,9 +184,21 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     @Override
     public Task<Integer> canActivate(String interfaceName)
     {
-        if (nodeType == NodeTypeEnum.CLIENT || stage.getState() == NodeState.STOPPED)
+        if (nodeType == NodeTypeEnum.CLIENT)
         {
             return Task.fromValue(actorSupported_noneSupported);
+        }
+        final NodeState state = stage.getState();
+        if (state == NodeState.STOPPED)
+        {
+            return Task.fromValue(actorSupported_noneSupported);
+        }
+        if (state == NodeState.STOPPING)
+        {
+            if (hasOtherRunningServerNodes())
+            {
+                return Task.fromValue(actorSupported_noneSupported);
+            }
         }
         return Task.fromValue(stage.canActivateActor(interfaceName) ? actorSupported_yes
                 : actorSupported_no);
@@ -195,9 +219,12 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 // clear list of actors this node can activate
                 node.canActivate.clear();
+                node.canActivatePending.clear();
+                node.canActivateWaiters.clear();
                 localAddressCache.asMap().values().removeAll(Collections.singleton(node.address));
             }
         }
+        updateServerNodes();
         return Task.done();
     }
 
@@ -208,10 +235,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         {
             logger.debug("Move {} to from {} to {}.", remoteReference, oldAddress, newAddress);
         }
-        if (activeNodes.containsKey(newAddress))
-        {
-            localAddressCache.put(remoteReference, newAddress);
-        }
+        localAddressCache.put(remoteReference, newAddress);
         return Task.done();
     }
 
@@ -240,7 +264,10 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     private void onClusterViewChanged(final Collection<NodeAddress> nodes)
     {
-        logger.info("Cluster view changed " + nodes + " on " + Thread.currentThread().getName());
+        if (logger.isDebugEnabled())
+        {
+            logger.debug("Cluster view changed " + nodes);
+        }
 
         final HashMap<NodeAddress, NodeInfo> oldNodes = new HashMap<>(activeNodes);
         final HashMap<NodeAddress, NodeInfo> newNodes = new HashMap<>(nodes.size());
@@ -252,10 +279,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             NodeInfo nodeInfo = oldNodes.remove(a);
             if (nodeInfo == null)
             {
-                final NodeInfo newNodeInfo = new NodeInfo(a);
-                newNodeInfo.nodeCapabilities = stage.getRemoteObserverReference(a, NodeCapabilities.class, "");
-                newNodeInfo.active = true;
-                nodeInfo = newNodeInfo;
+                nodeInfo = new NodeInfo(a);
+                nodeInfo.nodeCapabilities = stage.getRemoteObserverReference(a, NodeCapabilities.class, "");
+                nodeInfo.active = true;
             }
             newNodes.put(a, nodeInfo);
 
@@ -274,9 +300,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         activeNodes = newNodes;
 
         consistentHashNodeTree = newHashes;
-
-        this.serverNodes = activeNodes.values().stream().filter(
-                nodeInfo -> nodeInfo.active && !nodeInfo.cannotHostActors).collect(Collectors.toList());
+        updateServerNodes();
 
         stage.serverNodesUpdated();
 
@@ -294,7 +318,21 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         {
             // don't need to call the node call the node to check.
             // checks should be explicit.
-            return activeNodes.containsKey(address) ? Task.fromValue(address) : Task.fromValue(null);
+            if (activeNodes.containsKey(address))
+            {
+                if (address.equals(clusterPeer.localAddress()) && stage.getState() != NodeState.RUNNING)
+                {
+                    // node is draining, avoid routing new work to itself
+                }
+                else
+                {
+                    return Task.fromValue(address);
+                }
+            }
+            else
+            {
+                return Task.fromValue(null);
+            }
         }
         return (forceActivation) ? locateAndActivateActor(reference) : locateActiveActor(reference);
     }
@@ -305,7 +343,14 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         final NodeAddress address = localAddressCache.getIfPresent(actorReference);
         if (address != null && activeNodes.containsKey(address))
         {
-            return Task.fromValue(address);
+            if (address.equals(clusterPeer.localAddress()) && stage.getState() != NodeState.RUNNING)
+            {
+                // node is draining, ignore local cache to encourage relocation
+            }
+            else
+            {
+                return Task.fromValue(address);
+            }
         }
         // try to locate the actor in the distributed directory
         // this can be expensive, less that activating the actor, though
@@ -362,7 +407,14 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         // Is this actor already activated and in the local cache? If so, we're done
         if (address != null && activeNodes.containsKey(address))
         {
-            return Task.fromValue(address);
+            if (address.equals(clusterPeer.localAddress()) && stage.getState() != NodeState.RUNNING)
+            {
+                // node is draining, ignore local cache to encourage relocation
+            }
+            else
+            {
+                return Task.fromValue(address);
+            }
         }
 
         // Get the distributed cache if needed
@@ -443,6 +495,13 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     private Task<NodeAddress> selectNode(final String interfaceClassName)
     {
         final List<NodeInfo> currentServerNodes = serverNodes;
+        if (currentServerNodes.isEmpty()
+                && nodeType == NodeTypeEnum.SERVER
+                && stage.getState() == NodeState.RUNNING
+                && stage.canActivateActor(interfaceClassName))
+        {
+            return Task.fromValue(clusterPeer.localAddress());
+        }
 
         final List<NodeInfo> suitableNodes = currentServerNodes.stream()
                 .filter(n -> (!n.cannotHostActors && n.state == NodeState.RUNNING)
@@ -463,7 +522,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
             for (NodeInfo potentialNode : potentialNodes)
             {
-                potentialNode.canActivate2.putIfAbsent(interfaceClassName, new Task<>());
+                potentialNode.canActivateWaiters.putIfAbsent(interfaceClassName, new Task<>());
                 // loop over the potential nodes, add the interface to a concurrent hashset, if add returns true there is no activation pending
                 if (potentialNode.canActivatePending.add(interfaceClassName))
                 {
@@ -483,13 +542,19 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                                 potentialNode.cannotHostActors = true;
                                 // jic
                                 potentialNode.canActivate.put(interfaceClassName, actorSupported_no);
+                                updateServerNodes();
                             }
                             else
                             {
                                 // found suitable host
                                 potentialNode.canActivate.put(interfaceClassName, result);
                             }
-                            potentialNode.canActivate2.get(interfaceClassName).complete(null);
+                        }
+                        potentialNode.canActivatePending.remove(interfaceClassName);
+                        Task<Void> pending = potentialNode.canActivateWaiters.get(interfaceClassName);
+                        if (pending != null)
+                        {
+                            pending.complete(null);
                         }
                         return null;
                     });
@@ -497,7 +562,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             }
 
             return Task.allOf(potentialNodes.stream().map(nodeInfo ->
-                    nodeInfo.canActivate2.get(interfaceClassName)
+                    nodeInfo.canActivateWaiters.get(interfaceClassName)
                             .failAfter(timeToWaitForServersMillis, TimeUnit.MILLISECONDS))
                     .collect(Collectors.toList())).handle((aVoid, throwable) -> {
                 final List<NodeInfo> suitableNodes2 = potentialNodes.stream()
@@ -521,7 +586,8 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     {
         final String interfaceClassName = interfaceClass.getName();
 
-        if (interfaceClass.isAnnotationPresent(PreferLocalPlacement.class) &&
+        if (stage.getState() == NodeState.RUNNING &&
+                interfaceClass.isAnnotationPresent(PreferLocalPlacement.class) &&
                 nodeType == NodeTypeEnum.SERVER && stage.canActivateActor(interfaceClassName))
         {
             final int percentile = interfaceClass.getAnnotation(PreferLocalPlacement.class).percentile();
@@ -547,6 +613,20 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         {
             throw new UncheckedException(e);
         }
+    }
+
+    private void updateServerNodes()
+    {
+        this.serverNodes = activeNodes.values().stream()
+                .filter(nodeInfo -> nodeInfo.active && nodeInfo.state == NodeState.RUNNING && !nodeInfo.cannotHostActors)
+                .collect(Collectors.toList());
+    }
+
+    private boolean hasOtherRunningServerNodes()
+    {
+        final List<NodeInfo> currentServerNodes = serverNodes;
+        return currentServerNodes.stream()
+                .anyMatch(nodeInfo -> !nodeInfo.address.equals(clusterPeer.localAddress()));
     }
 
     /**
@@ -611,9 +691,19 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                         entry.getKey().equals(hostingInit.getNodeAddress()))
                 {
                     entry.getValue().nodeName = hostingInit.getNodeName();
+                    entry.getValue().cannotHostActors = hostingInit.getNodeType() == NodeTypeEnum.CLIENT;
                     entry.getValue().canActivate.putAll(hostingInit.getSupportedActorInterfaces());
+                    for (String actorInterface : hostingInit.getSupportedActorInterfaces().keySet())
+                    {
+                        Task<Void> waiter = entry.getValue().canActivateWaiters.remove(actorInterface);
+                        if (waiter != null)
+                        {
+                            waiter.complete(null);
+                        }
+                    }
                 }
             }
+            updateServerNodes();
         }
         else
         {
@@ -736,6 +826,9 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
             {
                 supportedActivations.put(actorInterface, actorSupported_yes);
             }
+            final NodeTypeEnum localNodeType = stage.getMode() == Stage.StageMode.HOST
+                    ? NodeTypeEnum.SERVER
+                    : NodeTypeEnum.CLIENT;
 
             Map<NodeAddress, NodeInfo> nodes = activeNodes;
             for (NodeAddress nodeAddress : nodes.keySet())
@@ -748,7 +841,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
                         .withInterfaceId(0)
                         .withMethodId(0)
                         .withMessageType(MessageDefinitions.HOSTING_INIT)
-                        .withPayload(new HostingInitPayload(stage.getNodeName(), supportedActivations)));
+                        .withPayload(new HostingInitPayload(stage.getNodeName(), supportedActivations, localNodeType)));
             }
             return Task.done();
         }
